@@ -12,7 +12,7 @@ ngenes <- 10000
 nsamples <- 8
 nperm <- 10000
 nrot <- 100
-set_idx <- 1:20
+set_idx <- 1:100
 
 ## -----------------------------
 ## Helper functions
@@ -72,10 +72,16 @@ sample_rotation_matrix <- function(basis) {
   basis %*% Qrot %*% t(basis)
 }
 
+empirical_p_right <- function(obs, null_dist) {
+  (1 + sum(null_dist >= obs)) / (length(null_dist) + 1)
+}
+
 ## -----------------------------
 ## Simulate data + observed ES
 ## -----------------------------
-sim <- simulate_expression(ngenes = ngenes, nsamples = nsamples, set_idx = set_idx)
+sim <- simulate_expression(
+  ngenes = ngenes, nsamples = nsamples, set_idx = set_idx
+  )
 Y <- sim$Y
 group <- sim$group
 design <- sim$design
@@ -121,18 +127,26 @@ for (b in seq_len(nrot)) {
   max_diff_vec[b] <- max(abs(corr_rot - corr_orig))
 }
 
+# Compute empirical p-values
+p_perm <- empirical_p_right(ES_obs, null_dist_perm)
+p_rot <- empirical_p_right(ES_obs, null_dist_rot)
+
 ## -----------------------------
 ## Diagnostics + plots
 ## -----------------------------
 cat("Dimensions of Y:", dim(Y)[1], "x", dim(Y)[2], "\n")
 cat("Observed ES:", ES_obs, "\n")
+cat("Empirical p-value (permutation):", p_perm, "\n")
+cat("Empirical p-value (rotation):", p_rot, "\n")
 cat("Max |delta(corr)| summary:\n")
 print(summary(max_diff_vec))
 
-pdf("rot.pdf", width = 8, height = 4)
+pdf("es_dist.pdf", width = 8, height = 4)
 par(mfrow = c(1, 2))
 hist(null_dist_rot, breaks = 50, main = "Null distribution (rotation)", xlab = "GSEA statistic")
 abline(v = ES_obs, col = "red", lwd = 2)
+legend("topright", legend = sprintf("p = %.4g", p_rot), bty = "n")
 hist(null_dist_perm, breaks = 50, main = "Null distribution (permutation)", xlab = "GSEA statistic")
 abline(v = ES_obs, col = "red", lwd = 2)
+legend("topright", legend = sprintf("p = %.4g", p_perm), bty = "n")
 dev.off()
