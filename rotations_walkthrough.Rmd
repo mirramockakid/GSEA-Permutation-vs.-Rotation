@@ -1,0 +1,410 @@
+---
+title: "GSEA Null Calibration: Permutation vs Rotation (Walkthrough)"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 8,
+  fig.height = 5,
+  dpi = 120,
+  cache = TRUE
+)
+
+if (!requireNamespace("knitr", quietly = TRUE)) {
+  stop("Package 'knitr' is required.")
+}
+```
+
+# Overview
+
+This document explains the main steps in `rotations.r`, runs the simulation script, and summarizes the differences between gene-wise permutation and rotation-based null generation.
+
+The report is designed to rerun quickly:
+
+- `rotations.r` now uses a simulation cache (`simulation_cache.rds`) for Monte Carlo outputs
+- this R Markdown file also enables knitr chunk caching
+
+If the cache does not exist (or configuration changes), the first run can still take a while.
+
+# What `rotations.r` Does (Step-by-Step)
+
+## 1. Configuration
+
+The script sets:
+
+- dataset dimensions (`ngenes`, `nsamples`)
+- gene set size (`set_size`, `set_idx`)
+- Monte Carlo settings (`nsim`, `nperm`, `nrot`)
+- correlation settings (`rho_set_grid`, `rho_bg`)
+- parallelization mode (`parallel_over`, `ncores`)
+- cache options (`use_simulation_cache`, `simulation_cache_file`)
+
+## 2. Core helper functions
+
+The script defines functions to:
+
+- compute a GSEA-like enrichment score (`gsea_set_stat`)
+- compute empirical right-tail p-values (`empirical_p_right`)
+- simulate correlated noise in set and background genes
+- simulate null datasets (no differential expression)
+- fit limma and compute enrichment scores from p-values
+- build a rotation basis from the null-model residual space
+- sample random orthogonal rotations in that residual space
+
+## 3. Null generation methods compared
+
+For each simulated dataset, the script computes:
+
+- **Permutation null**: shuffles gene-wise p-values before recomputing the set statistic
+- **Rotation null**: rotates residuals under the null model, refits, and recomputes the set statistic
+
+This is repeated over:
+
+- multiple correlation strengths in `rho_set_grid`
+- multiple Monte Carlo replicates (`nsim`)
+
+## 4. Summaries and output files
+
+The script then:
+
+- summarizes empirical type-I error and mean p-values by `rho_set`
+- writes CSV outputs
+- creates diagnostic plots (calibration panel, ECDF, null histograms)
+- creates correlation heatmaps and rotation-preservation diagnostics
+
+# Run the Script (Using Cached Simulation Data)
+
+```{r run-script, cache=TRUE}
+if (!file.exists("rotations.r")) {
+  stop("Cannot find rotations.r in the working directory.")
+}
+
+if (!file.exists("simulation_cache.rds")) {
+  message("No simulation cache found yet. First run may be slow.")
+}
+
+sim_env <- new.env(parent = globalenv())
+source("rotations.r", local = sim_env)
+
+# Pull key objects into the report environment for convenience
+needed <- c(
+  "ngenes", "nsamples", "set_size", "set_idx", "nsim", "nperm", "nrot", "alpha",
+  "rho_set_grid", "rho_bg", "parallel_over", "ncores",
+  "results", "summary_tbl", "example_datasets", "example_distributions",
+  "rotation_preservation_summary",
+  "build_rotation_basis", "sample_rotation_matrix"
+)
+for (nm in needed) {
+  if (exists(nm, envir = sim_env, inherits = FALSE)) {
+    assign(nm, get(nm, envir = sim_env, inherits = FALSE))
+  }
+}
+```
+
+# Configuration Used in This Run
+
+```{r config-table}
+config_tbl <- data.frame(
+  parameter = c(
+    "ngenes", "nsamples", "set_size", "nsim", "nperm", "nrot", "alpha",
+    "rho_set_grid", "rho_bg", "parallel_over", "ncores"
+  ),
+  value = c(
+    ngenes, nsamples, set_size, nsim, nperm, nrot, alpha,
+    paste(rho_set_grid, collapse = ", "),
+    rho_bg, parallel_over, ncores
+  ),
+  stringsAsFactors = FALSE
+)
+knitr::kable(config_tbl, caption = "Configuration used by rotations.r")
+```
+
+# Simulation Outputs
+
+## Monte Carlo results (head)
+
+```{r results-head}
+knitr::kable(head(results, 10), caption = "First 10 Monte Carlo rows")
+```
+
+## Calibration summary by correlation level
+
+```{r summary-table}
+summary_view <- summary_tbl
+summary_view$delta_type1_perm_minus_rot <- summary_view$type1_perm - summary_view$type1_rot
+summary_view$delta_mean_p_perm_minus_rot <- summary_view$mean_p_perm - summary_view$mean_p_rot
+knitr::kable(summary_view, digits = 4, caption = "Calibration summary across rho_set")
+```
+
+# Visualizing the Difference: Permutation vs Rotation
+
+## 1. Type-I error calibration vs within-set correlation
+
+This reproduces the main "Calibration Under Null" comparison and highlights how the methods behave as gene-gene correlation increases.
+
+```{r calibration-plot}
+plot_tbl <- summary_tbl[
+  is.finite(summary_tbl$rho_set) &
+    is.finite(summary_tbl$type1_perm) &
+    is.finite(summary_tbl$type1_rot),
+, drop = FALSE]
+plot_tbl <- plot_tbl[order(plot_tbl$rho_set), , drop = FALSE]
+
+if (nrow(plot_tbl) == 0) {
+  plot.new()
+  title("Calibration Under Null")
+  text(0.5, 0.5, "No finite values to plot")
+} else {
+  y_lim <- range(c(plot_tbl$type1_perm, plot_tbl$type1_rot, alpha), na.rm = TRUE)
+  if (y_lim[1] == y_lim[2]) y_lim <- y_lim + c(-0.01, 0.01)
+
+  plot(
+    plot_tbl$rho_set, plot_tbl$type1_perm,
+    type = "b", pch = 16, lwd = 2,
+    ylim = y_lim,
+    xlab = expression(rho[set]),
+    ylab = "Empirical type-I error",
+    main = "Calibration Under Null"
+  )
+  lines(plot_tbl$rho_set, plot_tbl$type1_rot, type = "b", pch = 17, lwd = 2, col = "blue")
+  abline(h = alpha, lty = 2, col = "darkgray")
+  legend(
+    "topleft",
+    legend = c("Gene-wise permutation", "Rotation", "Nominal alpha"),
+    col = c("black", "blue", "darkgray"),
+    lty = c(1, 1, 2),
+    pch = c(16, 17, NA),
+    bty = "n"
+  )
+}
+```
+
+## 2. p-value ECDF comparison at low and high correlation
+
+Uniformity under the null is a useful diagnostic. The dashed line is the ideal uniform ECDF.
+
+```{r ecdf-comparison, fig.width=10, fig.height=4.5}
+par(mfrow = c(1, 2), mar = c(4, 4, 3, 1))
+
+for (rho_val in c(min(rho_set_grid), max(rho_set_grid))) {
+  idx <- results$rho_set == rho_val & is.finite(results$p_perm) & is.finite(results$p_rot)
+  if (!any(idx)) {
+    plot.new()
+    title(sprintf("ECDF (rho_set = %.1f)", rho_val))
+    text(0.5, 0.5, "No finite p-values")
+  } else {
+    plot(
+      ecdf(results$p_perm[idx]),
+      do.points = FALSE,
+      verticals = TRUE,
+      main = sprintf("ECDF (rho_set = %.1f)", rho_val),
+      xlab = "p-value",
+      ylab = "ECDF"
+    )
+    lines(ecdf(results$p_rot[idx]), do.points = FALSE, verticals = TRUE, col = "blue")
+    abline(0, 1, lty = 2, col = "darkgray")
+    legend(
+      "topleft",
+      legend = c("Permutation", "Rotation", "Uniform(0,1)"),
+      col = c("black", "blue", "darkgray"),
+      lty = c(1, 1, 2),
+      bty = "n"
+    )
+  }
+}
+par(mfrow = c(1, 1))
+```
+
+## 3. Example null distributions of the enrichment statistic
+
+These panels compare the null distributions produced by the two methods for a single example dataset at low and high correlation.
+
+```{r null-distribution-panels, fig.width=10, fig.height=4.5}
+par(mfrow = c(1, 2), mar = c(4, 4, 3, 1))
+
+plot_example_null <- function(ex, rho_label) {
+  if (is.null(ex)) {
+    plot.new()
+    title(sprintf("Example null ES (rho_set = %s)", rho_label))
+    text(0.5, 0.5, "Not available")
+    return(invisible(NULL))
+  }
+  hist(
+    ex$null_perm, breaks = 40, col = "gray85", border = "white",
+    main = sprintf("Example null ES (rho_set = %s)", rho_label),
+    xlab = "ES"
+  )
+  hist(ex$null_rot, breaks = 40, col = rgb(0, 0, 1, 0.35), border = "white", add = TRUE)
+  abline(v = ex$ES_obs, col = "red", lwd = 2)
+  legend(
+    "topright",
+    legend = c("Permutation", "Rotation", "Observed ES"),
+    fill = c("gray85", rgb(0, 0, 1, 0.35), NA),
+    border = NA,
+    lty = c(NA, NA, 1),
+    col = c(NA, NA, "red"),
+    bty = "n"
+  )
+}
+
+ex_low <- example_distributions[[paste0("rho_", min(rho_set_grid))]]
+ex_high <- example_distributions[[paste0("rho_", max(rho_set_grid))]]
+
+plot_example_null(ex_low, sprintf("%.1f", min(rho_set_grid)))
+plot_example_null(ex_high, sprintf("%.1f", max(rho_set_grid)))
+
+par(mfrow = c(1, 1))
+```
+
+# Why Rotation Helps: Correlation Structure Preservation
+
+The key idea is that rotation operates in the residual space and preserves the covariance/correlation structure more faithfully than gene-wise permutation.
+
+## 4. Correlation heatmaps from the simulated datasets
+
+These are the summary statistics generated by `rotations.r` from example datasets.
+
+```{r heatmap-summary}
+if (file.exists("corr_heatmap_summary.csv")) {
+  corr_heatmap_summary <- read.csv("corr_heatmap_summary.csv")
+  knitr::kable(corr_heatmap_summary, digits = 4, caption = "Correlation heatmap summary statistics")
+} else {
+  cat("`corr_heatmap_summary.csv` not found. Re-run `rotations.r`.\n")
+}
+```
+
+## 5. Rotation correlation-preservation metrics
+
+This directly quantifies how similar the pairwise gene-gene correlations are before vs after a residual-space rotation.
+
+```{r rotation-preservation-summary}
+if (exists("rotation_preservation_summary")) {
+  knitr::kable(rotation_preservation_summary, digits = 4, caption = "Rotation correlation-preservation summary")
+} else if (file.exists("rotation_corr_preservation_summary.csv")) {
+  rotation_preservation_summary <- read.csv("rotation_corr_preservation_summary.csv")
+  knitr::kable(rotation_preservation_summary, digits = 4, caption = "Rotation correlation-preservation summary")
+} else {
+  cat("Rotation preservation summary not available.\n")
+}
+```
+
+## 6. Inline correlation-preservation visualization (original vs rotated)
+
+The next chunk recreates the key idea visually for the lowest and highest `rho_set` example datasets:
+
+- original gene-gene correlation heatmap
+- rotated gene-gene correlation heatmap
+- scatter of pairwise correlations (original vs rotated)
+
+```{r rotation-preservation-inline, fig.width=11, fig.height=8}
+plot_rotation_preservation_inline <- function(Y, set_idx, rho_val, bg_n = 300) {
+  if (is.null(Y)) {
+    plot.new()
+    title(sprintf("rho_set = %.1f", rho_val))
+    text(0.5, 0.5, "Example dataset not available")
+    return(invisible(NULL))
+  }
+
+  nsamp <- ncol(Y)
+  design0 <- matrix(1, nrow = nsamp, ncol = 1)
+  fit0 <- limma::lmFit(Y, design0)
+  Yhat0 <- fitted(fit0)
+  res0 <- Y - Yhat0
+  basis <- build_rotation_basis(design0 = design0, nsamples = nsamp)
+  Rmat <- sample_rotation_matrix(basis)
+  Y_rot <- Yhat0 + res0 %*% Rmat
+
+  bg_idx <- setdiff(seq_len(nrow(Y)), set_idx)
+  if (length(bg_idx) > bg_n) bg_idx <- sample(bg_idx, bg_n)
+  keep_idx <- c(set_idx, bg_idx)
+
+  corr_orig <- cor(t(Y[keep_idx, , drop = FALSE]))
+  corr_rot <- cor(t(Y_rot[keep_idx, , drop = FALSE]))
+  u <- upper.tri(corr_orig)
+  x <- corr_orig[u]
+  y <- corr_rot[u]
+  r_xy <- suppressWarnings(cor(x, y, use = "complete.obs"))
+  mad_xy <- mean(abs(x - y), na.rm = TRUE)
+
+  cols <- colorRampPalette(c("#313695", "#ffffbf", "#a50026"))(100)
+
+  image(
+    seq_len(nrow(corr_orig)), seq_len(ncol(corr_orig)),
+    corr_orig[nrow(corr_orig):1, ],
+    col = cols, zlim = c(-1, 1), axes = FALSE,
+    xlab = "Genes", ylab = "Genes",
+    main = sprintf("Original (rho=%.1f)", rho_val)
+  )
+  box()
+
+  image(
+    seq_len(nrow(corr_rot)), seq_len(ncol(corr_rot)),
+    corr_rot[nrow(corr_rot):1, ],
+    col = cols, zlim = c(-1, 1), axes = FALSE,
+    xlab = "Genes", ylab = "Genes",
+    main = "Rotated"
+  )
+  box()
+
+  plot(
+    x, y,
+    pch = 16, cex = 0.35,
+    col = rgb(0, 0, 0, 0.18),
+    xlab = "Original pairwise correlation",
+    ylab = "Rotated pairwise correlation",
+    main = "Pairwise correlation comparison"
+  )
+  abline(0, 1, col = "red", lwd = 2)
+  mtext(sprintf("r = %.3f | mean abs diff = %.3f", r_xy, mad_xy), side = 3, line = 0.2, cex = 0.8)
+}
+
+par(mfrow = c(2, 3), mar = c(4, 4, 3, 1))
+plot_rotation_preservation_inline(example_datasets[[paste0("rho_", min(rho_set_grid))]], set_idx, min(rho_set_grid))
+plot_rotation_preservation_inline(example_datasets[[paste0("rho_", max(rho_set_grid))]], set_idx, max(rho_set_grid))
+par(mfrow = c(1, 1))
+```
+
+# Interpretation Guide
+
+When you read the report, the main differences to focus on are:
+
+- **Type-I error calibration**:
+  - if permutation inflates type-I error as `rho_set` increases, it suggests correlation is not being respected by the null
+  - rotation should remain closer to nominal `alpha`
+- **p-value ECDFs**:
+  - departures from the diagonal under the null indicate miscalibration
+- **Null ES histograms**:
+  - compare how the null distributions differ in spread/shape
+- **Correlation-preservation plots**:
+  - points near the `y = x` line indicate rotated data preserve pairwise correlations well
+
+# Files Produced by `rotations.r`
+
+```{r produced-files}
+produced_files <- c(
+  "simulation_cache.rds",
+  "null_calibration_summary.csv",
+  "null_calibration_results.csv",
+  "null_calibration.pdf",
+  "corr_heatmap_summary.csv",
+  "rotation_corr_preservation_summary.csv"
+)
+
+file_status <- data.frame(
+  file = produced_files,
+  exists = file.exists(produced_files),
+  stringsAsFactors = FALSE
+)
+knitr::kable(file_status, caption = "Key output files")
+
+cat("\nHeatmap PDFs:", length(Sys.glob("corr_heatmap_rho_*.pdf")), "\n")
+cat("Rotation-preservation PDFs:", length(Sys.glob("rotation_corr_preservation_rho_*.pdf")), "\n")
+```
