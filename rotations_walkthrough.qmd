@@ -1,10 +1,9 @@
 ---
 title: "GSEA Null Calibration: Permutation vs Rotation (Walkthrough)"
-output:
-  html_document:
+format:
+  html:
     toc: true
-    toc_float: true
-    number_sections: true
+    number-sections: true
 ---
 
 ```{r setup, include=FALSE}
@@ -30,7 +29,7 @@ This document explains the main steps in `rotations.r`, runs the simulation scri
 The report is designed to rerun quickly:
 
 - `rotations.r` now uses a simulation cache (`simulation_cache.rds`) for Monte Carlo outputs
-- this R Markdown file also enables knitr chunk caching
+- this Quarto document also enables knitr chunk caching
 
 If the cache does not exist (or configuration changes), the first run can still take a while.
 

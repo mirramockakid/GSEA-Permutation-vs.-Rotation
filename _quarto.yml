@@ -1,0 +1,12 @@
+project:
+  type: default
+  output-dir: public
+
+format:
+  html:
+    toc: true
+    number-sections: true
+
+execute:
+  warning: false
+  message: false
