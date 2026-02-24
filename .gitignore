@@ -3,10 +3,13 @@
 
 # Quarto rendered site output
 /public/
+/report/*/
 
 # knitr / Quarto figure and cache directories
 /rotations_walkthrough_cache/
 /rotations_walkthrough_files/
+/gsea_rotation_vs_permutation_cache/
+/gsea_rotation_vs_permutation_files/
 
 # Local editor settings
 /.vscode/

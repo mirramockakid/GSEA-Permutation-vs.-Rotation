@@ -12,11 +12,15 @@ This repo now uses Quarto documents (`.qmd`) instead of R Markdown (`.Rmd`).
 Render the walkthrough report:
 
 ```bash
-quarto render rotations_walkthrough.qmd
+quarto render gsea_rotation_vs_permutation.qmd
 ```
+
+Local renders write output to `report/` (see `_quarto.yml`).
 
 Render all project documents (outputs are written to `public/` via `_quarto.yml`):
 
 ```bash
 quarto render
 ```
+
+GitHub Actions uses the `github` Quarto profile (`_quarto-github.yml`) so CI output is written to `public/` for Pages deployment.

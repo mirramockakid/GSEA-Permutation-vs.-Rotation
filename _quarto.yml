@@ -1,6 +1,8 @@
 project:
   type: default
-  output-dir: public
+  output-dir: report
+  post-render:
+    - Rscript scripts/quarto_post_render_cleanup.R
 
 format:
   html:

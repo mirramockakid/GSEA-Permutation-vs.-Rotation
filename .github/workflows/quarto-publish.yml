@@ -35,7 +35,9 @@ jobs:
           BiocManager::install("limma", ask = FALSE, update = FALSE)
 
       - name: Render Quarto project
-        run: quarto render
+        env:
+          QUARTO_OUTPUT_DIR: public
+        run: quarto render --profile github --to html
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5

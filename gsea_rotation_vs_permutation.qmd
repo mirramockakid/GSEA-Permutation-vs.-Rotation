@@ -9,6 +9,37 @@ format:
 [Portfolio](https://mirramockakid.github.io/Portfolio/){.chip-link}
 
 ```{r setup, include=FALSE}
+doc_stem <- "gsea_rotation_vs_permutation"
+output_dir <- Sys.getenv("QUARTO_OUTPUT_DIR", unset = "")
+if (!nzchar(output_dir)) {
+  output_dir <- "report"
+}
+
+knitr_out_base <- if (basename(normalizePath(getwd(), mustWork = FALSE)) == basename(output_dir)) {
+  "."
+} else {
+  output_dir
+}
+
+fig_format <- knitr::opts_knit$get("rmarkdown.pandoc.to")
+if (!is.character(fig_format) || length(fig_format) != 1L || !nzchar(fig_format)) {
+  fig_format <- "html"
+}
+
+dir.create(file.path(knitr_out_base, paste0(doc_stem, "_cache")), recursive = TRUE, showWarnings = FALSE)
+dir.create(file.path(knitr_out_base, paste0(doc_stem, "_files")), recursive = TRUE, showWarnings = FALSE)
+dir.create(file.path(knitr_out_base, paste0(doc_stem, "_files"), paste0("figure-", fig_format)), recursive = TRUE, showWarnings = FALSE)
+
+# Cleanup stale legacy flat figure files from earlier fig.path settings.
+legacy_fig_dir <- paste0(doc_stem, "_files")
+legacy_flat_figs <- Sys.glob(file.path(legacy_fig_dir, "figure-*.*"))
+if (length(legacy_flat_figs)) {
+  is_flat_file <- file.info(legacy_flat_figs)$isdir %in% FALSE
+  if (any(is_flat_file, na.rm = TRUE)) {
+    unlink(legacy_flat_figs[is_flat_file])
+  }
+}
+
 knitr::opts_chunk$set(
   echo = TRUE,
   message = FALSE,
@@ -16,7 +47,9 @@ knitr::opts_chunk$set(
   fig.width = 8,
   fig.height = 5,
   dpi = 120,
-  cache = TRUE
+  cache = TRUE,
+  cache.path = file.path(knitr_out_base, paste0(doc_stem, "_cache/")),
+  fig.path = file.path(paste0(doc_stem, "_files"), paste0("figure-", fig_format), "")
 )
 
 if (!requireNamespace("knitr", quietly = TRUE)) {
