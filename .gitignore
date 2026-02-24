@@ -1,0 +1,21 @@
+/.quarto/
+**/*.quarto_ipynb
+
+# Quarto rendered site output
+/public/
+
+# knitr / Quarto figure and cache directories
+/rotations_walkthrough_cache/
+/rotations_walkthrough_files/
+
+# Local editor settings
+/.vscode/
+
+# Generated analysis outputs
+/simulation_cache.rds
+/null_calibration*.csv
+/null_calibration*.pdf
+/corr_heatmap_*.pdf
+/corr_heatmap_summary.csv
+/rotation_corr_preservation_*.pdf
+/rotation_corr_preservation_summary.csv

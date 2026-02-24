@@ -6,7 +6,7 @@ format:
     number-sections: true
 ---
 
-[Portfolio](https://mirramockakid.github.io/Portfolio/)
+[Portfolio](https://mirramockakid.github.io/Portfolio/){.chip-link}
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(
