@@ -4,8 +4,11 @@ project:
 
 format:
   html:
+    theme: minty
+    css: styles.css
     toc: true
     number-sections: true
+    link-external-newwindow: true
 
 execute:
   warning: false
